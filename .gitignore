@@ -1,0 +1,18 @@
+# Ambiente virtual e cache do Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Variáveis de ambiente e senhas de banco
+.env
+
+# Ignora dados brutos e processados pesados na pasta data/
+data/**/*.xlsx
+data/**/*.csv
+data/**/*.txt
+data/**/*.parquet
+data/**/*.dbc
+
+# Permite versionar apenas arquivos .gitkeep para manter as pastas vazias no Git
+!data/**/.gitkeep
