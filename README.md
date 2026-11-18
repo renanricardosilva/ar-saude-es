@@ -1,79 +1,81 @@
-# ar-saude-es | Engenharia de Dados de Qualidade do Ar e Saúde Pública no Espírito Santo
+# ar-saude-es
 
-Pipeline de Engenharia e Análise de Dados que integra as séries históricas de monitoramento da qualidade do ar do [Instituto Estadual de Meio Ambiente e Recursos Hídricos (IEMA)](https://iema.es.gov.br/qualidadedoar/dadosdemonitoramento/automatica) com variáveis meteorológicas do projeto irmão [chuva-es](https://github.com/renanricardosilva/chuva-es) e registros de internações hospitalares por doenças respiratórias do Sistema Único de Saúde (SIH/DataSUS) no Espírito Santo.
+Pipeline de dados que integra o monitoramento da qualidade do ar do Espírito Santo, publicado pelo [IEMA](https://iema.es.gov.br/qualidadedoar), com as internações hospitalares do SUS, para servir de base a análises sobre poluição atmosférica e saúde respiratória e cardiovascular.
 
-## Contexto e Problema de Negócio
+Projeto irmão do [chuva-es](https://github.com/renanricardosilva/chuva-es), com o qual compartilha o banco de dados e as tabelas de municípios e regiões.
 
-A gestão da qualidade do ar e a vigilância em saúde ambiental exigem a integração de bases governamentais heterogêneas, com diferentes frequências temporais, estruturas de arquivos e regras de validação normativa:
+> **Status:** em construção.
+> **Já funciona:** estrutura do repositório e documentação das decisões.
+> **Próximo passo:** coletor horário da API do Índice de Qualidade do Ar (IQAr).
 
-1. **[Rede Automática de Monitoramento da Qualidade do Ar (RAMQAr - IEMA)](https://iema.es.gov.br/qualidadedoar/dadosdemonitoramento/automatica)**: Monitoramento horário contínuo de gases ($\text{CO}$, $\text{SO}_2$, $\text{NO}_x$, $\text{O}_3$, $\text{HC}$), material particulado ($\text{MP}_{2,5}$, $\text{MP}_{10}$, $\text{PTS}$) e parâmetros meteorológicos nas redes da Região da Grande Vitória (RGV, 10 estações), Região Sul (Anchieta e Guarapari, 6 estações operadas pela Samarco) e Região Norte (Linhares). Os dados brutos são disponibilizados em planilhas de formato largo (*wide*) com cabeçalho hierárquico de 8 linhas e colunas pareadas de medição e `Flag` de controle operacional.
-2. **[Rede Manual de Partícula Sedimentável (RMPS - IEMA)](https://iema.es.gov.br/qualidadedoar/dadosdemonitoramento/manual_grafico)**: Monitoramento gravimétrico oficial regulamentado (normas ASTM D1739-98 e ABNT NBR 12065:1991) com exposição de 30 dias em jarros coletores ($\text{g/m}^2/\text{30 dias}$), complementado recentemente por sensores automáticos de resolução horária voltados à gestão operacional e identificação de flutuações intradiárias e semanais.
-3. **Morbidade Hospitalar (SIH/DataSUS)**: Registros de Autorizações de Internação Hospitalar (AIH) por doenças do aparelho respiratório (Capítulo X da CID-10) nos municípios capixabas, permitindo avaliar correlações espaço-temporais e defasagens (*lags*) entre episódios críticos de poluição atmosférica e desfechos de saúde pública.
+## Pergunta que a base vai responder
 
-## Arquitetura de Dados (Medallion Architecture)
+Aumentos diários de material particulado (MP10 e MP2,5) na Grande Vitória estão associados a mais internações por doenças respiratórias nos dias seguintes, depois de considerar tendência, sazonalidade e clima?
 
-O projeto adota a **Arquitetura Medalhão** (*Bronze*, *Silver* e *Gold*) para garantir rastreabilidade, reprodutibilidade e separação clara entre o dado bruto governamental e as tabelas analíticas consumidas em BI e modelos estatísticos:
+A engenharia vem primeiro: as camadas de dados são desenhadas para que essa pergunta possa ser respondida com rastreabilidade. A análise estatística entra numa etapa posterior.
 
-| Camada | Diretório / Destino | Formato | Responsabilidade Técnica |
-| :--- | :--- | :--- | :--- |
-| **Bronze (Raw)** | `data/bronze/` | `.xlsx`, `.csv`, `.txt`, `.dbc` | Preservação imutável dos arquivos originais baixados do [Portal da RAMQAr](https://iema.es.gov.br/qualidadedoar/dadosdemonitoramento/automatica), da [Página da RMPS](https://iema.es.gov.br/qualidadedoar/dadosdemonitoramento/manual_grafico) e do DataSUS (`rgv_2024.xlsx`, `rmps_rgv_consolidado.xlsx`). |
-| **Silver (Cleaned & Enriched)** | `data/silver/` | `.parquet` + PostgreSQL/PostGIS | Desmembramento do cabeçalho de 8 linhas da RAMQAr, conversão de *wide* para *long* (tidy data), expurgo de `Flags` inválidas (`IF`, `IP`, `ID`, `IU`, `IC`, `IT`), padronização de unidades e georreferenciamento das estações (`SIRGAS 2000` / `EPSG:4674`). |
-| **Gold (Analytical / Curated)** | `data/gold/` | `.parquet` + Views SQL/PostGIS | Séries agregadas diárias e mensais, cálculo do Índice de Qualidade do Ar (IQAr), cruzamento multi-granularidade (RMPS mensal oficial vs. RMPS horária automática) e matriz integrada Ar + Meteorologia + Internações SUS por município e buffer de influência das estações. |
+## Fontes de dados
 
-## Estrutura do Repositório
+Apenas dados públicos.
 
-```text
-ar-saude-es/
-├── data/
-│   ├── bronze/
-│   │   ├── datasus/                # Arquivos brutos de morbidade hospitalar (SIH/SUS)
-│   │   ├── ramqar/                 # Planilhas brutas da rede automática (ex: rgv_2024.xlsx)
-│   │   └── rmps/                   # Planilhas consolidadas de poeira sedimentável (ex: rmps_rgv_consolidado.xlsx)
-│   ├── silver/                     # Dados normalizados, validados e tipados em formato Parquet
-│   └── gold/                       # Tabelas analíticas agregadas para consumo em Power BI e modelos
-├── docs/
-│   ├── decisoes/                   # Architecture Decision Records (ADRs)
-│   └── retrospectivas/             # Relatórios de revisão e retrospectiva de cada Sprint
-├── notebooks/                      # Análises exploratórias (EDA) e prototipação
-├── sql/                            # Scripts DDL/DML para PostgreSQL + extensão espacial PostGIS
-├── src/
-│   ├── ingestion/                  # Leitores de arquivos brutos (Excel multi-header, CSV/TXT, DataSUS)
-│   ├── transform/                  # Limpeza de flags, pivotagem wide-to-long e regras de negócio
-│   └── database/                   # Conectores SQLAlchemy e carga em banco de dados
-├── tests/                          # Testes automatizados de qualidade de dados e transformação (Pytest)
-├── .gitignore
-├── requirements.txt
-└── README.md
+| Fonte | O que traz | Frequência | Formato | Como obter |
+| :--- | :--- | :--- | :--- | :--- |
+| **RAMQAr** (Rede Automática de Monitoramento da Qualidade do Ar) | Poluentes e meteorologia por estação, dado validado | Horária, publicada em arquivos anuais ou semestrais | `.xlsx` / `.xls` | [Página de dados do IEMA](https://iema.es.gov.br/qualidadedoar/dadosdemonitoramento/automatica), por região (Grande Vitória, Sul, Norte) |
+| **API do IQAr** | Índice e poluente determinante por estação, dado preliminar | Horária, só a hora corrente | JSON | `https://qualidadedoarapi.es.gov.br/api/mapa` (a mesma usada pelo [mapa do IEMA](https://iema.es.gov.br/qualidadedoar/indicedequalidadedoar)) |
+| **RMPS** (Rede Manual de Poeira Sedimentável) | Taxa de deposição (g/m²/30 dias), ocorrências e coordenadas das estações | Mensal | `.xlsx` | [Página da RMPS](https://iema.es.gov.br/qualidadedoar/dadosdemonitoramento/manual_grafico) → painel da região → ícone de download |
+| **SIH/SUS** (Sistema de Informações Hospitalares) | Internações com data, município de residência, idade e diagnóstico (CID-10) | Mensal | `.dbc` | DataSUS |
+| **Poeira sedimentável automática** | Deposição em resolução horária, sem regulamentação | Horária | CSV/TXT | Ainda não publicada pelo IEMA. O conector será testado com dados sintéticos |
+
+## Arquitetura
+
+Arquitetura medalhão, com custo zero de infraestrutura:
+
+- **Bronze:** arquivos originais, intactos, com registro de cada arquivo recebido (hash, data e número de linhas).
+- **Silver:** dados no formato longo (estação, parâmetro, horário, valor), com a regra de validade aplicada e a origem de cada valor (preliminar ou validado), em Parquet.
+- **Gold:** séries agregadas para análise e painéis, em PostgreSQL compartilhado com o chuva-es.
+
+Detalhes e alternativas consideradas estão nos [ADRs](docs/decisoes/).
+
+## Como executar
+
+```powershell
+git clone https://github.com/renanricardosilva/ar-saude-es.git
+cd ar-saude-es
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
 ```
 
-## Governança Ágil (Scrum Solo)
+Esta seção cresce a cada entrega.
 
-Seguindo o modelo consolidado no repositório [chuva-es](https://github.com/renanricardosilva/chuva-es), o desenvolvimento é gerido via **GitHub Projects** e **GitHub Issues** com Sprints de 1 semana e estimativa de esforço em *Story Points* (escala Fibonacci):
+## Método de trabalho
 
-| Sprint | Foco Principal | Entregáveis Chave | Status |
-| :--- | :--- | :--- | :--- |
-| **Sprint 1** | Fundação, Governança e Ingestão Bronze/Silver (IEMA) | Estrutura Medalhão, ADR-001, parser Python do cabeçalho de 8 linhas da RAMQAr (`rgv_2024.xlsx`) e normalizador das 4 abas da RMPS (`rmps_rgv_consolidado.xlsx`). | Em andamento |
-| **Sprint 2** | Modelagem Relacional e Geoespacial (PostgreSQL/PostGIS) | Schema dimensional e espacial das estações (RGV, Sul e Norte), integração com dados meteorológicos e automação de ingestão *zero-cost* para arquivos `CSV`/`TXT`. | Planejado |
-| **Sprint 3** | Integração Saúde Pública (DataSUS) e Camada Gold | Extração do SIH/SUS (CID-10 Capítulo X), agregação espaço-temporal e views analíticas para cruzamento de poluentes críticos ($\text{MP}_{10}$, $\text{MP}_{2,5}$, $\text{SO}_2$, $\text{O}_3$, PS) com desfechos respiratórios. | Planejado |
-| **Sprint 4** | Visualização Executiva e Storytelling para Gestão Pública | Painel interativo no Power BI, mapas de dispersão/buffers no QGIS e documentação executiva de resultados. | Planejado |
+Scrumban adaptado para uma pessoa, o mesmo método do chuva-es:
 
-## Como Executar Localmente
+- Ciclos de cerca de três dias, com uma nota curta de retrospectiva em [`docs/retrospectivas/`](docs/retrospectivas/).
+- Quadro no GitHub Projects: Backlog → Pronto para fazer → Fazendo (no máximo 2 itens) → Revisão → Feito.
+- Cada entrega entra por Pull Request, com commits no padrão Conventional Commits.
 
-1. Clone o repositório e acesse a pasta do projeto:
-   ```powershell
-   git clone https://github.com/renanricardosilva/ar-saude-es.git
-   cd ar-saude-es
-   ```
-2. Crie e ative o ambiente virtual Python:
-   ```powershell
-   python -m venv .venv
-   .\.venv\Scripts\Activate.ps1
-   pip install -r requirements.txt
-   ```
-3. Baixe as planilhas públicas na página da [RAMQAr - IEMA](https://iema.es.gov.br/qualidadedoar/dadosdemonitoramento/automatica) e no painel da [RMPS - IEMA](https://iema.es.gov.br/qualidadedoar/dadosdemonitoramento/manual_grafico), alocando-as em `data/bronze/ramqar/rgv_2024.xlsx` e `data/bronze/rmps/rmps_rgv_consolidado.xlsx`.
+**Definição de Pronto:**
+- O código roda do zero seguindo este README.
+- Há pelo menos um teste para a regra principal da entrega.
+- README e ADRs refletem o que foi feito.
+- Nenhuma afirmação da documentação fica sem evidência no repositório.
+
+## Decisões
+
+- [ADR-001: Arquitetura medalhão e estratégia de ingestão](docs/decisoes/adr_001_arquitetura_medalhao_e_ingestao.md)
+
+## Limitações conhecidas
+
+- A cobertura varia muito entre estações e poluentes. Em 2024, algumas estações da Grande Vitória não têm nenhum dado válido de material particulado.
+- A API do IQAr traz um único poluente por estação (o que define o índice) e dado preliminar, sujeito a correção na publicação validada.
+- O formato dos arquivos da RAMQAr muda ao longo dos anos (`.xls` até 2017, páginas web em 2018 e 2019, divisão por semestre em 2025).
+- O SIH cobre apenas internações pelo SUS e informa o município de residência, não a localização exata.
+- Em 2020 e 2021, a pandemia distorceu as internações respiratórias.
 
 ## Autor
 
 **Renan Ricardo Silva**
-Engenheiro Agrônomo (ESALQ/USP), graduando em Tecnologia da Informação (SENAC) e gestor público na área de Gestão e Qualidade Ambiental no Espírito Santo.
+Engenheiro agrônomo (ESALQ/USP), graduando em Tecnologia em Banco de Dados (Senac) e gestor público na área de gestão e qualidade ambiental no Espírito Santo.
+
 - GitHub: [github.com/renanricardosilva](https://github.com/renanricardosilva)
